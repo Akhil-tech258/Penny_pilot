@@ -53,6 +53,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import com.privacyexpense.tracker.data.model.Category
 import com.privacyexpense.tracker.data.model.Transaction
 import com.privacyexpense.tracker.data.model.TransactionStatus
@@ -86,6 +89,7 @@ fun CustomTransactionsScreen(
         onBackToHome()
     }
 
+    val context = LocalContext.current
     var selectedPendingTransaction by remember { mutableStateOf<Transaction?>(null) }
     var viewingTransactionDetail by remember { mutableStateOf<Transaction?>(null) }
     var isAddingManualTransaction by remember { mutableStateOf(false) }
@@ -161,20 +165,59 @@ fun CustomTransactionsScreen(
                     modifier = Modifier.clickable(onClick = onBackToHome)
                 )
 
-                // Quick Add Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, TableBorderBlack, RoundedCornerShape(8.dp))
-                        .clickable { isAddingManualTransaction = true }
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "+ Add",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextBlack
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Export చరిత్ర Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (savedTransactions.isEmpty()) {
+                                    Toast.makeText(context, "No saved transactions to export", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val csv = buildString {
+                                        append("ID,Amount,Type,Merchant,Category,Date,Status,Source\n")
+                                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                                        for (tx in savedTransactions) {
+                                            val dateStr = sdf.format(java.util.Date(tx.transactionTime))
+                                            val merchantSafe = tx.merchant.replace("\"", "\"\"")
+                                            val catSafe = (tx.categoryName ?: "Others").replace("\"", "\"\"")
+                                            append("${tx.id},${tx.amount},${tx.type},\"$merchantSafe\",\"$catSafe\",$dateStr,${tx.status},${tx.sourceApp}\n")
+                                        }
+                                    }
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/csv"
+                                        putExtra(Intent.EXTRA_SUBJECT, "Penny Pilot - చరిత్ర (Transactions).csv")
+                                        putExtra(Intent.EXTRA_TEXT, csv)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Export చరిత్ర (Transactions Statement)"))
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "Export చరిత్ర",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextBlack
+                        )
+                    }
+
+                    // Quick Add Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, TableBorderBlack, RoundedCornerShape(8.dp))
+                            .clickable { isAddingManualTransaction = true }
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "+ Add",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextBlack
+                        )
+                    }
                 }
             }
 
