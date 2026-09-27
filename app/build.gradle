@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.privacyexpense.tracker"
+        applicationId "com.privacyexpense.tracker.pro"
         minSdk 26
         targetSdk 36
         versionCode 1
