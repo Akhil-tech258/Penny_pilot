@@ -64,11 +64,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 fun SignatureSplitHomeScreen(
     userName: String = "Akhil",
     pendingCount: Int = 1,
+    todaySpent: Double = 0.0,
+    totalOwedToMe: Double = 0.0,
     onNavigateToTransactions: () -> Unit,
     onNavigateToRecurringBills: () -> Unit = {},
     onNavigateToBackup: () -> Unit,
     onNavigateToSettings: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onTriggerFlightLogRecap: (() -> Unit)? = null
 ) {
     var isProfileMaximized by remember { mutableStateOf(false) }
     var activeDualSection by remember { mutableStateOf<String?>(null) }
@@ -244,6 +247,61 @@ fun SignatureSplitHomeScreen(
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Velocity / Daily Burn Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF9FAFB))
+                        .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Today's Burn",
+                            fontSize = 10.sp,
+                            fontStyle = FontStyle.Italic,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "₹${if (todaySpent % 1.0 == 0.0) todaySpent.toInt() else String.format("%.2f", todaySpent)}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextBlack
+                        )
+                    }
+                }
+
+                if (totalOwedToMe > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFECFDF5))
+                            .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "Owed to you",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF047857)
+                            )
+                            Text(
+                                text = "+₹${if (totalOwedToMe % 1.0 == 0.0) totalOwedToMe.toInt() else String.format("%.2f", totalOwedToMe)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF047857)
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -255,6 +313,9 @@ fun SignatureSplitHomeScreen(
         ) {
             MaximizedProfileView(
                 userName = userName,
+                todaySpent = todaySpent,
+                totalOwedToMe = totalOwedToMe,
+                onTriggerFlightLogRecap = onTriggerFlightLogRecap,
                 onClose = { isProfileMaximized = false },
                 onLogout = onLogout
             )
@@ -300,6 +361,9 @@ private fun NavItem(
 @Composable
 private fun MaximizedProfileView(
     userName: String,
+    todaySpent: Double = 0.0,
+    totalOwedToMe: Double = 0.0,
+    onTriggerFlightLogRecap: (() -> Unit)? = null,
     onClose: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -376,7 +440,7 @@ private fun MaximizedProfileView(
                 color = TextSecondary
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // White Card with information (Matching Screen 6/7)
             Card(
@@ -399,29 +463,29 @@ private fun MaximizedProfileView(
                         color = TextSecondary
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.LightGray.copy(alpha = 0.5f)))
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Name", fontSize = 13.sp, color = TextSecondary)
-                        Text(text = userName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextBlack)
+                        Text(text = "Today's Outflow", fontSize = 13.sp, color = TextSecondary)
+                        Text(text = "₹${if (todaySpent % 1.0 == 0.0) todaySpent.toInt() else String.format("%.2f", todaySpent)}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextBlack)
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Account", fontSize = 13.sp, color = TextSecondary)
-                        Text(text = "Local Encrypted Profile", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextBlack)
+                        Text(text = "Owed to You", fontSize = 13.sp, color = TextSecondary)
+                        Text(text = "₹${if (totalOwedToMe % 1.0 == 0.0) totalOwedToMe.toInt() else String.format("%.2f", totalOwedToMe)}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF047857))
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -434,6 +498,27 @@ private fun MaximizedProfileView(
             }
 
             Spacer(modifier = Modifier.weight(1f))
+
+            if (onTriggerFlightLogRecap != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF3F4F6))
+                        .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(12.dp))
+                        .clickable(onClick = onTriggerFlightLogRecap),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "✈️ Send Daily Flight Log",
+                        color = TextBlack,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             // Log Out Button
             Box(

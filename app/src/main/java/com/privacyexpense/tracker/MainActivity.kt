@@ -9,10 +9,11 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.FragmentActivity
+import com.privacyexpense.tracker.data.security.BiometricAuthManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -77,7 +78,7 @@ fun AppNavState.navDepth(): Int = when (this) {
     AppNavState.SETTINGS -> 4
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private lateinit var dbHelper: AppDatabaseHelper
 
@@ -129,6 +130,8 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
     val savedList = remember { mutableStateListOf<Transaction>() }
     val categoriesList = remember { mutableStateListOf<Category>() }
     val recurringBillsList = remember { mutableStateListOf<RecurringBill>() }
+    var todaySpent by remember { mutableStateOf(0.0) }
+    var totalOwedToMe by remember { mutableStateOf(0.0) }
 
     fun refreshData() {
         pendingList.clear()
@@ -142,6 +145,9 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
 
         recurringBillsList.clear()
         recurringBillsList.addAll(dbHelper.getRecurringBills())
+
+        todaySpent = dbHelper.getTodayDebitSum()
+        totalOwedToMe = dbHelper.getTotalOwedToMe()
     }
 
     fun proceedFromSplash() {
@@ -312,6 +318,7 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
             }
 
             AppNavState.LOGIN -> {
+                val fragmentActivity = context as? FragmentActivity
                 LoginScreen(
                     profileName = currentProfile?.displayName ?: "User",
                     onLogin = { enteredPass ->
@@ -325,6 +332,24 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
                             false
                         }
                     },
+                    onBiometricClick = if (fragmentActivity != null && BiometricAuthManager.isBiometricAvailable(context)) {
+                        {
+                            BiometricAuthManager.promptBiometric(
+                                activity = fragmentActivity,
+                                onSuccess = {
+                                    val p = currentProfile ?: dbHelper.getProfile()
+                                    if (p != null) {
+                                        currentProfile = p
+                                        prefs.edit().putBoolean("is_logged_in", true).apply()
+                                        currentScreen = AppNavState.HOME
+                                    }
+                                },
+                                onError = { err ->
+                                    Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                    } else null,
                     onBack = { currentScreen = AppNavState.WELCOME },
                     onResetProfileClick = {
                         dbHelper.clearProfile()
@@ -339,6 +364,8 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
                 SignatureSplitHomeScreen(
                     userName = currentProfile?.displayName ?: "Akhil",
                     pendingCount = pendingList.size,
+                    todaySpent = todaySpent,
+                    totalOwedToMe = totalOwedToMe,
                     onNavigateToTransactions = {
                         refreshData()
                         currentScreen = AppNavState.TRANSACTIONS
@@ -355,6 +382,15 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
                     onLogout = {
                         prefs.edit().putBoolean("is_logged_in", false).apply()
                         currentScreen = AppNavState.LOGIN
+                    },
+                    onTriggerFlightLogRecap = {
+                        NotificationHelper.showDailyFlightLog(
+                            context = context,
+                            spentToday = todaySpent,
+                            receivedToday = dbHelper.getTodayCreditSum(),
+                            transactionCount = dbHelper.getTodayTransactionCount()
+                        )
+                        Toast.makeText(context, "✈️ Daily Flight Log notification sent!", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -408,6 +444,11 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
                     onUpdateTransaction = { updatedTx ->
                         dbHelper.updateTransaction(updatedTx)
                         refreshData()
+                    },
+                    onRecordSplit = { split ->
+                        dbHelper.saveSplit(split)
+                        refreshData()
+                        Toast.makeText(context, "✓ Split recorded (₹${split.owedAmount} owed by ${split.friendNames})", Toast.LENGTH_SHORT).show()
                     },
                     onAddManualTransaction = { tx ->
                         dbHelper.insertTransaction(tx)

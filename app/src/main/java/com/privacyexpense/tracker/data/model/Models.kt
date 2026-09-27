@@ -46,3 +46,13 @@ data class LocalProfile(
     val passwordHash: String,
     val createdAt: Long = System.currentTimeMillis()
 )
+
+data class SplitRecord(
+    val id: Long = 0,
+    val transactionId: Long,
+    val totalAmount: Double,
+    val myShare: Double,
+    val owedAmount: Double,
+    val friendNames: String,
+    val isSettled: Boolean = false
+)

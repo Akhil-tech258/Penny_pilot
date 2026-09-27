@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import com.privacyexpense.tracker.data.model.Category
 import com.privacyexpense.tracker.data.model.LocalProfile
 import com.privacyexpense.tracker.data.model.RecurringBill
+import com.privacyexpense.tracker.data.model.SplitRecord
 import com.privacyexpense.tracker.data.model.Transaction
 import com.privacyexpense.tracker.data.model.TransactionStatus
 import com.privacyexpense.tracker.data.model.TransactionType
@@ -105,6 +106,21 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             """.trimIndent()
         )
 
+        // Split with Friends table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS split_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER,
+                total_amount REAL NOT NULL,
+                my_share REAL NOT NULL,
+                owed_amount REAL NOT NULL,
+                friend_names TEXT NOT NULL,
+                is_settled INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+
         // Seed Default Categories matching Storyboard
         seedCategories(db)
     }
@@ -120,6 +136,19 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 due_day INTEGER NOT NULL,
                 category_name TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS split_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER,
+                total_amount REAL NOT NULL,
+                my_share REAL NOT NULL,
+                owed_amount REAL NOT NULL,
+                friend_names TEXT NOT NULL,
+                is_settled INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent()
         )
@@ -527,5 +556,121 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
     fun deleteRecurringBill(id: Long): Boolean {
         val db = writableDatabase
         return db.delete("recurring_bills", "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    // --- Split with Friends Operations ---
+    fun getUnsettledSplits(): List<SplitRecord> {
+        val list = mutableListOf<SplitRecord>()
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, transaction_id, total_amount, my_share, owed_amount, friend_names, is_settled FROM split_records WHERE is_settled = 0", null)
+        cursor.use {
+            while (it.moveToNext()) {
+                list.add(
+                    SplitRecord(
+                        id = it.getLong(0),
+                        transactionId = it.getLong(1),
+                        totalAmount = it.getDouble(2),
+                        myShare = it.getDouble(3),
+                        owedAmount = it.getDouble(4),
+                        friendNames = it.getString(5),
+                        isSettled = it.getInt(6) == 1
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun saveSplit(record: SplitRecord): Long {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("transaction_id", record.transactionId)
+            put("total_amount", record.totalAmount)
+            put("my_share", record.myShare)
+            put("owed_amount", record.owedAmount)
+            put("friend_names", record.friendNames)
+            put("is_settled", if (record.isSettled) 1 else 0)
+        }
+        return db.insert("split_records", null, values)
+    }
+
+    fun settleSplit(id: Long): Boolean {
+        val db = writableDatabase
+        val values = ContentValues().apply { put("is_settled", 1) }
+        return db.update("split_records", values, "id = ?", arrayOf(id.toString())) > 0
+    }
+
+    fun getTotalOwedToMe(): Double {
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT SUM(owed_amount) FROM split_records WHERE is_settled = 0", null)
+        cursor.use {
+            if (it.moveToFirst() && !it.isNull(0)) {
+                return it.getDouble(0)
+            }
+        }
+        return 0.0
+    }
+
+    fun getTodayDebitSum(): Double {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+        val db = readableDatabase
+        val cursor = db.rawQuery(
+            "SELECT SUM(amount) FROM transactions WHERE type = 'DEBIT' AND status = 'SAVED' AND transaction_time >= ?",
+            arrayOf(startOfDay.toString())
+        )
+        cursor.use {
+            if (it.moveToFirst() && !it.isNull(0)) {
+                return it.getDouble(0)
+            }
+        }
+        return 0.0
+    }
+
+    fun getTodayCreditSum(): Double {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+        val db = readableDatabase
+        val cursor = db.rawQuery(
+            "SELECT SUM(amount) FROM transactions WHERE type = 'CREDIT' AND status = 'SAVED' AND transaction_time >= ?",
+            arrayOf(startOfDay.toString())
+        )
+        cursor.use {
+            if (it.moveToFirst() && !it.isNull(0)) {
+                return it.getDouble(0)
+            }
+        }
+        return 0.0
+    }
+
+    fun getTodayTransactionCount(): Int {
+        val cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = cal.timeInMillis
+        val db = readableDatabase
+        val cursor = db.rawQuery(
+            "SELECT COUNT(*) FROM transactions WHERE status = 'SAVED' AND transaction_time >= ?",
+            arrayOf(startOfDay.toString())
+        )
+        cursor.use {
+            if (it.moveToFirst() && !it.isNull(0)) {
+                return it.getInt(0)
+            }
+        }
+        return 0
     }
 }

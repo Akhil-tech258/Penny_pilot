@@ -167,4 +167,35 @@ object NotificationHelper {
 
         notificationManager.notify(notificationId, builder.build())
     }
+
+    fun showDailyFlightLog(
+        context: Context,
+        spentToday: Double,
+        receivedToday: Double,
+        transactionCount: Int
+    ) {
+        createNotificationChannel(context)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("EXTRA_NAVIGATE_TO", "TRANSACTIONS")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            9999,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("✈️ Flight Log: ₹${String.format("%.2f", spentToday)} spent today")
+            .setContentText("$transactionCount transaction(s) logged. Received: ₹${String.format("%.2f", receivedToday)}.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Today's financial velocity: ₹${String.format("%.2f", spentToday)} outflow across $transactionCount transactions. Offline & encrypted."))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+
+        notificationManager.notify(9999, builder.build())
+    }
 }

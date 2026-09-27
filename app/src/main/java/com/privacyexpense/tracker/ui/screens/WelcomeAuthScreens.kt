@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -361,10 +362,15 @@ fun CreateProfileScreen(
 fun LoginScreen(
     profileName: String,
     onLogin: (password: String) -> Boolean,
+    onBiometricClick: (() -> Unit)? = null,
     onBack: () -> Unit,
     onResetProfileClick: () -> Unit = {}
 ) {
     BackHandler { onBack() }
+
+    LaunchedEffect(Unit) {
+        onBiometricClick?.invoke()
+    }
 
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -466,6 +472,27 @@ fun LoginScreen(
             }
 
             Spacer(modifier = Modifier.weight(1f))
+
+            if (onBiometricClick != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AccentGold)
+                        .clickable(onClick = onBiometricClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🔒 Unlock with Fingerprint / Face",
+                        color = TextBlack,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
 
             Box(
                 modifier = Modifier

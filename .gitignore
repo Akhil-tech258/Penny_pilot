@@ -14,3 +14,4 @@ build/
 output-metadata.json
 release_apks/
 termux/
+pi/
