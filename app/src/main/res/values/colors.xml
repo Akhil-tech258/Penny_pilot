@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_white">#FFFFFF</color>
+    <color name="bg_warm_glow">#F4D3A1</color>
+    <color name="avatar_peach">#F4D3A1</color>
+    <color name="accent_gold">#E5B869</color>
+    <color name="text_primary">#000000</color>
+    <color name="text_secondary">#6B7280</color>
+    <color name="border_black">#000000</color>
+</resources>

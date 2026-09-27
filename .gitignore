@@ -1,0 +1,16 @@
+.gradle/
+*.iml
+/local.properties
+/.idea
+.DS_Store
+build/
+**/build/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.ap_
+output-metadata.json
+release_apks/
+termux/
