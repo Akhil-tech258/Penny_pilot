@@ -132,7 +132,7 @@ fun OpeningSplashScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "पैसा में परमात्मा",
+                text = "డబ్బులు ఎవరికీ ఊరికే రావు",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFFD4AF37), // Subtle gold

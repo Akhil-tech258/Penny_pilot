@@ -198,7 +198,7 @@ fun CustomTransactionsScreen(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "Export CSV",
+                            text = "Export చరిత్ర",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = TextBlack
