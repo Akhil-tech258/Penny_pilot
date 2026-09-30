@@ -157,6 +157,61 @@ class DetectionAndCryptoTest {
     }
 
     @Test
+    fun testTransactionDetection_Debit_MixedDebitAndCreditKeywords() {
+        val packageName = "com.google.android.apps.messaging"
+        val title = "Bank Alert"
+        val text = "Your A/c *1234 is debited by Rs 500.00 on 28-Sep. Transfer to XYZ credited. Ref: 987654321012"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertTrue("Should detect transaction", result.isTransaction)
+        val tx = result.transaction!!
+        assertEquals(500.0, tx.amount, 0.01)
+        assertEquals(TransactionType.DEBIT, tx.type)
+        assertEquals("Ref: 987654321012", tx.description)
+    }
+
+    @Test
+    fun testTransactionDetection_Debit_ReceivedByMerchant() {
+        val packageName = "com.google.android.apps.nbu.paisa.user"
+        val title = "Google Pay"
+        val text = "Payment of ₹250.00 received by Star Cafe. Txn ID: 123456789012"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertTrue("Should detect transaction", result.isTransaction)
+        val tx = result.transaction!!
+        assertEquals(250.0, tx.amount, 0.01)
+        assertEquals(TransactionType.DEBIT, tx.type)
+        assertEquals("Star Cafe", tx.merchant)
+        assertEquals("Ref: 123456789012", tx.description)
+    }
+
+    @Test
+    fun testTransactionDetection_Debit_CreditCardSpent() {
+        val packageName = "com.google.android.apps.messaging"
+        val title = "HDFC Bank"
+        val text = "Spent Rs 1,499.00 on HDFC Bank Credit Card ending 9876 at AMAZON INDIA"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertTrue("Should detect transaction", result.isTransaction)
+        val tx = result.transaction!!
+        assertEquals(1499.0, tx.amount, 0.01)
+        assertEquals(TransactionType.DEBIT, tx.type)
+    }
+
+    @Test
+    fun testTransactionDetection_Credit_Refund() {
+        val packageName = "com.google.android.apps.messaging"
+        val title = "SBI Alert"
+        val text = "Refund of Rs 399.00 credited to your A/c *4321 from SWIGGY"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertTrue("Should detect transaction", result.isTransaction)
+        val tx = result.transaction!!
+        assertEquals(399.0, tx.amount, 0.01)
+        assertEquals(TransactionType.CREDIT, tx.type)
+    }
+
+    @Test
     fun testCryptoManager_PasswordHashAndVerify() {
         val password = "SuperSecretPassword123"
         val salt = CryptoManager.generateSalt()

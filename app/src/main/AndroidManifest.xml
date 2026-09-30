@@ -24,10 +24,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- Share Sheet receiver to capture shared receipts and payment confirmations -->
-            <intent-filter>
+            <intent-filter android:label="Add to Penny Pilot">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+            <intent-filter android:label="Add to Penny Pilot">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter android:label="Add to Penny Pilot">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

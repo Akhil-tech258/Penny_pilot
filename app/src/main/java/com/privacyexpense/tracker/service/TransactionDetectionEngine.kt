@@ -20,12 +20,17 @@ object TransactionDetectionEngine {
     // Extensive keywords that identify marketing, investments, SIPs, loans, or non-transaction alerts
     private val IGNORE_KEYWORDS = listOf(
         "otp", "due date", "bill due", "reminder", "offer", "discount", "statement", "loan approved",
-        "sip", "mutual fund", "fund", "invest", "portfolio", "stocks", "gold",
+        "sip", "mutual fund", "portfolio", "stocks", "gold",
         "start a", "start your", "starting at", "starting from", "starting @", "starting ₹", "starting rs",
         "reward", "scratch card", "win ", "won ", "cashback of up to", "earn up to", "earn ₹", "earn rs",
         "pre-approved", "pre approved", "apply for", "apply now", "apply today", "kyc", "cibil", "credit score",
         "gift card", "spin the wheel", "spin & win", "voucher", "insurance", "save daily", "grow your wealth",
         "claim your", "congratulations", "bonus", "unlock", "explore"
+    )
+
+    private val UPI_REF_PATTERN = Pattern.compile(
+        """\b(?:upi\s*ref(?:erence)?(?:\s*no)?[:\s/]*|utr[:\s/]*|ref\s*no[:\s/]*|txn\s*id[:\s/]*|ref[:\s/]*)\s*([0-9]{10,14})\b""",
+        Pattern.CASE_INSENSITIVE
     )
 
     fun parseNotification(
@@ -39,8 +44,15 @@ object TransactionDetectionEngine {
         val lowerContent = fullContent.lowercase()
 
         // 1. Strict filter against promotional, SIP, mutual fund, or engagement notifications
-        for (ignore in IGNORE_KEYWORDS) {
-            if (lowerContent.contains(ignore)) {
+        // Don't filter if notification is a legitimate refund or cashback
+        val isLegitRefundOrCashback = lowerContent.contains("refund") || lowerContent.contains("cashback")
+        if (!isLegitRefundOrCashback) {
+            for (ignore in IGNORE_KEYWORDS) {
+                if (lowerContent.contains(ignore)) {
+                    return DetectionResult(false)
+                }
+            }
+            if (Regex("""\b(?:mutual\s+)?funds?\b""").containsMatchIn(lowerContent)) {
                 return DetectionResult(false)
             }
         }
@@ -61,7 +73,11 @@ object TransactionDetectionEngine {
         // 4. Extract Merchant / Sender according to transaction direction
         val merchant = extractMerchant(title, text, fullContent, type)
 
-        // 5. Resolve friendly source app name
+        // 5. Extract Reference / UTR number if present
+        val refMatcher = UPI_REF_PATTERN.matcher(fullContent)
+        val refNumber = if (refMatcher.find()) "Ref: ${refMatcher.group(1)}" else ""
+
+        // 6. Resolve friendly source app name
         val sourceApp = resolveAppName(packageName)
 
         val transaction = Transaction(
@@ -69,7 +85,7 @@ object TransactionDetectionEngine {
             currency = "INR",
             type = type,
             merchant = merchant,
-            description = "",
+            description = refNumber,
             sourceApp = sourceApp,
             sourcePackage = packageName,
             transactionTime = System.currentTimeMillis(),
@@ -81,32 +97,85 @@ object TransactionDetectionEngine {
     }
 
     private fun determineTransactionType(lowerContent: String): TransactionType? {
-        // High-confidence CREDIT patterns:
-        // "Abhi sent you...", "sent you ₹...", "credited to...", "received from...", "deposited into...", "cashback"
-        val isCredit = lowerContent.contains("sent you") ||
-                lowerContent.contains("credited") ||
-                lowerContent.contains("received") ||
-                lowerContent.contains("deposited") ||
-                lowerContent.contains("refund") ||
-                lowerContent.contains("cashback") ||
-                (lowerContent.contains("to your account") && (lowerContent.contains("sent") || lowerContent.contains("transferred")))
+        val text = lowerContent.replace(Regex("""\s+"""), " ")
 
-        if (isCredit) {
+        // --- STEP 1: Explicit User Account DEBITS ---
+        // If money left the user's account, it is strictly DEBIT, even if the notification contains "credited to merchant"
+        val isExplicitDebit = text.contains("debited from") ||
+                text.contains("debited by") ||
+                text.contains("debited for") ||
+                text.contains("debited with") ||
+                text.contains("is debited") ||
+                text.contains("was debited") ||
+                text.contains("has been debited") ||
+                Regex("""\b(?:a/c|acct|account)\s+.*?\bdebited\b""").containsMatchIn(text) ||
+                Regex("""\bdebited\b.*?\b(?:a/c|acct|account)\b""").containsMatchIn(text)
+
+        if (isExplicitDebit) {
+            return TransactionType.DEBIT
+        }
+
+        // --- STEP 2: Explicit User Account CREDITS ---
+        // Phrases indicating user's bank account or wallet received a deposit
+        val isExplicitCredit = Regex("""\b(?:a/c|acct|account)\s+.*?\bcredited\b""").containsMatchIn(text) ||
+                text.contains("credited to your a/c") ||
+                text.contains("credited to your account") ||
+                text.contains("credited with") ||
+                text.contains("is credited") ||
+                text.contains("has been credited") ||
+                text.contains("deposited into your account") ||
+                text.contains("deposited to your account") ||
+                text.contains("deposited in your account") ||
+                text.contains("received in your account") ||
+                text.contains("received in your a/c")
+
+        if (isExplicitCredit) {
             return TransactionType.CREDIT
         }
 
-        // High-confidence DEBIT patterns:
-        // "Paid to...", "debited from...", "debited for...", "transferred to...", "spent on...", "sent ₹... to..."
-        val isDebit = lowerContent.contains("debited") ||
-                lowerContent.contains("paid") ||
-                lowerContent.contains("spent") ||
-                lowerContent.contains("purchase") ||
-                lowerContent.contains("transferred to") ||
-                Pattern.compile("""\bsent\s+(?:[₹]|rs|inr)?\s*[\d,.]*\s*to\b""").matcher(lowerContent).find() ||
-                (lowerContent.contains("sent") && !lowerContent.contains("sent you") && !lowerContent.contains("to your account"))
-
-        if (isDebit) {
+        // --- STEP 3: Contextual Merchant / P2P Directions ---
+        // 3a. "received by <merchant>" means user paid money and merchant received it -> DEBIT!
+        if (Regex("""\breceived\s+by\b""").containsMatchIn(text)) {
             return TransactionType.DEBIT
+        }
+
+        // 3b. Income / P2P Credits
+        val isP2pCredit = text.contains("sent you") ||
+                Regex("""\breceived\s+(?:[₹]|rs|inr)?\s*[\d,.]*\s+from\b""").containsMatchIn(text) ||
+                Regex("""\bpayment\s+(?:of\s+.*?\s+)?received\s+from\b""").containsMatchIn(text) ||
+                text.contains("refund of") ||
+                text.contains("refund received") ||
+                text.contains("cashback of") ||
+                text.contains("cashback credited") ||
+                text.contains("money added to")
+
+        if (isP2pCredit) {
+            return TransactionType.CREDIT
+        }
+
+        // 3c. Outflow / Payments / Debits
+        val isP2pOrMerchantDebit = text.contains("paid to") ||
+                text.contains("paid successfully") ||
+                text.contains("you paid") ||
+                text.contains("spent on") ||
+                text.contains("spent at") ||
+                text.contains("purchase at") ||
+                text.contains("withdrawn from") ||
+                text.contains("transferred to") ||
+                Regex("""\bpayment\s+(?:of\s+.*?\s+)?to\b""").containsMatchIn(text) ||
+                Regex("""\bsent\s+(?:[₹]|rs|inr)?\s*[\d,.]*\s*to\b""").containsMatchIn(text)
+
+        if (isP2pOrMerchantDebit) {
+            return TransactionType.DEBIT
+        }
+
+        // --- STEP 4: Fallback checks ---
+        if (text.contains("debited") || text.contains("paid") || text.contains("spent")) {
+            return TransactionType.DEBIT
+        }
+
+        if (text.contains("credited") || text.contains("cashback") || text.contains("refund")) {
+            return TransactionType.CREDIT
         }
 
         return null
@@ -156,14 +225,18 @@ object TransactionDetectionEngine {
             return "Sender"
         } else {
             val debitPatterns = listOf(
+                // "Payment of ₹250.00 received by Star Cafe"
+                Pattern.compile("""(?:received\s+by)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE),
                 // "Paid ₹650 to Reliance Fresh"
-                Pattern.compile("""(?:paid.*?\s+to)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:\.|\,|on|using|via|ref|upi|avl|bal|for|$))""", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("""(?:paid.*?\s+to)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE),
                 // "Sent ₹200 to Rohit"
-                Pattern.compile("""(?:sent.*?\s+to)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:\.|\,|on|using|via|ref|upi|avl|bal|for|$))""", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("""(?:sent.*?\s+to)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE),
+                // "purchase at / spent at Amazon"
+                Pattern.compile("""(?:purchase\s+at|spent\s+at|at)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE),
                 // "debited for APSRTC Bus Booking" / "transferred to..." / "spent on..."
-                Pattern.compile("""(?:transferred to|spent on|debited for|at)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:\.|\,|on|using|via|ref|upi|avl|bal|for|$))""", Pattern.CASE_INSENSITIVE),
+                Pattern.compile("""(?:transferred\s+to|spent\s+on|debited\s+for)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE),
                 // "to Merchant"
-                Pattern.compile("""(?:to|towards)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:\.|\,|on|using|via|ref|upi|avl|bal|for|$))""", Pattern.CASE_INSENSITIVE)
+                Pattern.compile("""(?:to|towards)\s+([A-Za-z0-9\s&'-]{2,25}?)(?:\s*(?:[\n\r.,]|on\b|using\b|via\b|ref\b|upi\b|avl\b|bal\b|for\b|txn\b|\(|$))""", Pattern.CASE_INSENSITIVE)
             )
 
             for (pattern in debitPatterns) {
@@ -179,9 +252,9 @@ object TransactionDetectionEngine {
     }
 
     private fun sanitizeParty(raw: String): String {
-        var candidate = raw.trim()
+        var candidate = raw.trim().trimEnd('.', ',', ':', ';', '-')
         // Strip trailing preposition noise
-        candidate = candidate.replace(Regex("""(?i)\s+(?:via|using|on|upi|ref|bal|avl)$"""), "").trim()
+        candidate = candidate.replace(Regex("""(?i)\s+(?:via|using|on|upi|ref|bal|avl|txn)$"""), "").trim()
 
         // Strip leading app names if accidentally captured
         val leadingApps = listOf("PhonePe", "Google Pay", "Paytm", "BHIM", "Bank SMS", "HDFC Bank", "SBI", "ICICI")

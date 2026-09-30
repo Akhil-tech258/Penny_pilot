@@ -100,20 +100,53 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleSharedReceipt(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (!sharedText.isNullOrBlank()) {
-                val detection = TransactionDetectionEngine.parseNotification(
-                    packageName = "shared.receipt",
-                    title = "Shared Receipt",
-                    text = sharedText
+        if (intent?.action != Intent.ACTION_SEND) return
+
+        var sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        if (sharedText.isNullOrBlank()) {
+            sharedText = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+        }
+        if (sharedText.isNullOrBlank()) {
+            sharedText = intent.getStringExtra("sms_body")
+        }
+        if (sharedText.isNullOrBlank() && intent.clipData != null && intent.clipData!!.itemCount > 0) {
+            val itemText = intent.clipData!!.getItemAt(0).text?.toString()
+            if (!itemText.isNullOrBlank()) {
+                sharedText = itemText
+            }
+        }
+
+        val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        }
+
+        if (!sharedText.isNullOrBlank()) {
+            val detection = TransactionDetectionEngine.parseNotification(
+                packageName = "shared.receipt",
+                title = "Shared Receipt",
+                text = sharedText
+            )
+            if (detection.isTransaction && detection.transaction != null) {
+                val tx = detection.transaction.copy(
+                    status = TransactionStatus.SAVED,
+                    sourceApp = "Shared Receipt"
                 )
-                if (detection.isTransaction && detection.transaction != null) {
-                    val tx = detection.transaction.copy(status = TransactionStatus.SAVED)
+                if (!dbHelper.isDuplicateOrEnrich(tx)) {
                     dbHelper.insertTransaction(tx)
                     Toast.makeText(this, "✓ Captured ₹${tx.amount} to ${tx.merchant}", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Receipt already recorded (Duplicate ignored)", Toast.LENGTH_SHORT).show()
                 }
+                return
             }
+        }
+
+        // If an image receipt is shared (e.g. GPay/PhonePe screenshot or receipt card image)
+        if (streamUri != null || intent.type?.startsWith("image/") == true) {
+            Toast.makeText(this, "✓ Receipt captured in Penny Pilot! Add transaction details.", Toast.LENGTH_LONG).show()
         }
     }
 }
@@ -319,6 +352,22 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
 
             AppNavState.LOGIN -> {
                 val fragmentActivity = context as? FragmentActivity
+                LaunchedEffect(Unit) {
+                    if (fragmentActivity != null && BiometricAuthManager.isBiometricAvailable(context)) {
+                        BiometricAuthManager.promptBiometric(
+                            activity = fragmentActivity,
+                            onSuccess = {
+                                val p = currentProfile ?: dbHelper.getProfile()
+                                if (p != null) {
+                                    currentProfile = p
+                                    prefs.edit().putBoolean("is_logged_in", true).apply()
+                                    currentScreen = AppNavState.HOME
+                                }
+                            },
+                            onError = { /* Allow fallback to password entry */ }
+                        )
+                    }
+                }
                 LoginScreen(
                     profileName = currentProfile?.displayName ?: "User",
                     onLogin = { enteredPass ->

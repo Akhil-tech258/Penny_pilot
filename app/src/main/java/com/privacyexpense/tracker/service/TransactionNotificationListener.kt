@@ -21,8 +21,8 @@ class TransactionNotificationListener : NotificationListenerService() {
         if (result.isTransaction && result.transaction != null) {
             val dbHelper = AppDatabaseHelper.getInstance(applicationContext)
 
-            // Prevent duplicate logs within 60s
-            if (!dbHelper.isDuplicateTransaction(result.transaction.amount, result.transaction.merchant)) {
+            // Prevent duplicate logs across channels (UPI + Bank SMS within 180s)
+            if (!dbHelper.isDuplicateOrEnrich(result.transaction)) {
                 val newId = dbHelper.insertTransaction(result.transaction)
                 val savedTransaction = result.transaction.copy(id = newId)
 
