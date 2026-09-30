@@ -296,6 +296,90 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
         return list
     }
 
+    fun isDuplicateOrEnrich(incoming: Transaction, withinMs: Long = 180_000): Boolean {
+        val db = writableDatabase
+        val minTime = System.currentTimeMillis() - withinMs
+        val cursor = db.rawQuery(
+            """
+            SELECT id, amount, type, merchant, description, source_app, detected_time 
+            FROM transactions 
+            WHERE type = ? AND ABS(amount - ?) < 0.01 AND detected_time > ?
+            ORDER BY detected_time DESC
+            """.trimIndent(),
+            arrayOf(incoming.type.name, incoming.amount.toString(), minTime.toString())
+        )
+
+        var isDuplicate = false
+        cursor.use {
+            while (it.moveToNext()) {
+                val existingId = it.getLong(0)
+                val existingMerchant = it.getString(3) ?: ""
+                val existingDesc = it.getString(4) ?: ""
+                val existingSource = it.getString(5) ?: ""
+
+                // 1. Reference Number match (if both have UPI reference numbers and they match)
+                val incomingRef = extractRef(incoming.description)
+                val existingRef = extractRef(existingDesc)
+                if (incomingRef != null && existingRef != null && incomingRef == existingRef) {
+                    isDuplicate = true
+                    break
+                }
+
+                // 2. Cross-Channel Deduplication: UPI App vs Bank SMS
+                val isIncomingUpi = isUpiApp(incoming.sourceApp)
+                val isExistingUpi = isUpiApp(existingSource)
+                val isIncomingSms = isSmsApp(incoming.sourceApp)
+                val isExistingSms = isSmsApp(existingSource)
+
+                if ((isIncomingUpi && isExistingSms) || (isIncomingSms && isExistingUpi)) {
+                    isDuplicate = true
+
+                    // If incoming is from a clean UPI app (GPay, PhonePe) and existing is from Bank SMS with raw VPA/text,
+                    // upgrade the existing transaction with the cleaner merchant name and source app!
+                    if (isIncomingUpi && incoming.merchant.isNotBlank() && incoming.merchant != "Unknown Merchant") {
+                        val values = ContentValues().apply {
+                            put("merchant", incoming.merchant)
+                            put("source_app", incoming.sourceApp)
+                        }
+                        db.update("transactions", values, "id = ?", arrayOf(existingId.toString()))
+                    }
+                    break
+                }
+
+                // 3. Merchant Name similarity or Exact Match
+                val m1 = incoming.merchant.lowercase().replace(Regex("[^a-z0-9]"), "")
+                val m2 = existingMerchant.lowercase().replace(Regex("[^a-z0-9]"), "")
+                if (m1 == m2 || (m1.length >= 4 && m2.contains(m1)) || (m2.length >= 4 && m1.contains(m2))) {
+                    isDuplicate = true
+                    break
+                }
+
+                // 4. Same source app sent duplicate alert within window
+                if (incoming.sourceApp.isNotBlank() && incoming.sourceApp.equals(existingSource, ignoreCase = true)) {
+                    isDuplicate = true
+                    break
+                }
+            }
+        }
+
+        return isDuplicate
+    }
+
+    private fun extractRef(desc: String): String? {
+        val m = java.util.regex.Pattern.compile("""(?:Ref|UTR)[:\s]*(\d{10,14})""", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(desc)
+        return if (m.find()) m.group(1) else null
+    }
+
+    private fun isUpiApp(sourceApp: String): Boolean {
+        val s = sourceApp.lowercase()
+        return s.contains("google pay") || s.contains("phonepe") || s.contains("paytm") || s.contains("cred") || s.contains("bhim")
+    }
+
+    private fun isSmsApp(sourceApp: String): Boolean {
+        val s = sourceApp.lowercase()
+        return s.contains("sms") || s.contains("message") || s.contains("messaging") || s.contains("bank")
+    }
+
     fun isDuplicateTransaction(amount: Double, merchant: String, withinMs: Long = 60_000): Boolean {
         val db = readableDatabase
         val minTime = System.currentTimeMillis() - withinMs
