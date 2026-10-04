@@ -19,19 +19,38 @@ object TransactionDetectionEngine {
 
     // Extensive keywords that identify marketing, investments, SIPs, loans, or non-transaction alerts
     private val IGNORE_KEYWORDS = listOf(
-        "otp", "due date", "bill due", "reminder", "offer", "discount", "statement", "loan approved",
-        "sip", "mutual fund", "portfolio", "stocks", "gold",
+        "due date", "bill due", "reminder", "offer", "discount", "statement", "loan approved",
+        "mutual fund", "portfolio", "stocks",
         "start a", "start your", "starting at", "starting from", "starting @", "starting ₹", "starting rs",
         "reward", "scratch card", "win ", "won ", "cashback of up to", "earn up to", "earn ₹", "earn rs",
-        "pre-approved", "pre approved", "apply for", "apply now", "apply today", "kyc", "cibil", "credit score",
-        "gift card", "spin the wheel", "spin & win", "voucher", "insurance", "save daily", "grow your wealth",
-        "claim your", "congratulations", "bonus", "unlock", "explore"
+        "pre-approved", "pre approved", "apply for", "apply now", "apply today", "cibil", "credit score",
+        "gift card", "spin the wheel", "spin & win", "spin to win", "voucher", "insurance", "save daily", "grow your wealth",
+        "claim your", "congratulations", "bonus", "unlock", "explore",
+        "up to", "upto", "refer", "referral", "invite", "missing out", "someone's missing out",
+        "stand a chance", "chance to win", "lucky draw", "coupon", "promocode", "promo code", "use code",
+        "cashback points", "reward points", "flat ₹", "flat rs", "flat discount", "save up to"
     )
 
     private val UPI_REF_PATTERN = Pattern.compile(
         """\b(?:upi\s*ref(?:erence)?(?:\s*no)?[:\s/]*|utr[:\s/]*|ref\s*no[:\s/]*|txn\s*id[:\s/]*|ref[:\s/]*)\s*([0-9]{10,14})\b""",
         Pattern.CASE_INSENSITIVE
     )
+
+    private fun isPromotional(lowerContent: String): Boolean {
+        for (ignore in IGNORE_KEYWORDS) {
+            if (lowerContent.contains(ignore)) {
+                return true
+            }
+        }
+        // Match standalone words to avoid substring collisions
+        if (Regex("""\b(?:otp|kyc|sip|gold)\b""").containsMatchIn(lowerContent)) {
+            return true
+        }
+        if (Regex("""\b(?:mutual\s+)?funds?\b""").containsMatchIn(lowerContent)) {
+            return true
+        }
+        return false
+    }
 
     fun parseNotification(
         packageName: String,
@@ -43,18 +62,9 @@ object TransactionDetectionEngine {
 
         val lowerContent = fullContent.lowercase()
 
-        // 1. Strict filter against promotional, SIP, mutual fund, or engagement notifications
-        // Don't filter if notification is a legitimate refund or cashback
-        val isLegitRefundOrCashback = lowerContent.contains("refund") || lowerContent.contains("cashback")
-        if (!isLegitRefundOrCashback) {
-            for (ignore in IGNORE_KEYWORDS) {
-                if (lowerContent.contains(ignore)) {
-                    return DetectionResult(false)
-                }
-            }
-            if (Regex("""\b(?:mutual\s+)?funds?\b""").containsMatchIn(lowerContent)) {
-                return DetectionResult(false)
-            }
+        // 1. Strict filter against promotional, referral, marketing, or non-transaction alerts
+        if (isPromotional(lowerContent)) {
+            return DetectionResult(false)
         }
 
         // 2. Determine Transaction Type (Context-Aware Credit vs Debit)
@@ -147,6 +157,8 @@ object TransactionDetectionEngine {
                 text.contains("refund received") ||
                 text.contains("cashback of") ||
                 text.contains("cashback credited") ||
+                text.contains("cashback received") ||
+                text.contains("cashback added") ||
                 text.contains("money added to")
 
         if (isP2pCredit) {
@@ -174,7 +186,7 @@ object TransactionDetectionEngine {
             return TransactionType.DEBIT
         }
 
-        if (text.contains("credited") || text.contains("cashback") || text.contains("refund")) {
+        if (text.contains("credited")) {
             return TransactionType.CREDIT
         }
 

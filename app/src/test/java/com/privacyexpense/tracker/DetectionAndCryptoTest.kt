@@ -212,6 +212,50 @@ class DetectionAndCryptoTest {
     }
 
     @Test
+    fun testTransactionDetection_IgnorePaytmReferralPromo() {
+        val packageName = "net.one97.paytm"
+        val title = "Someone's Missing Out 👀"
+        val text = "Know a friend or family member who could use Paytm? Refer them and get up to ₹200 cashback."
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertFalse("Paytm referral cashback promo should be ignored", result.isTransaction)
+    }
+
+    @Test
+    fun testTransactionDetection_IgnoreGPayInvitePromo() {
+        val packageName = "com.google.android.apps.nbu.paisa.user"
+        val title = "Google Pay"
+        val text = "Invite friends to Google Pay and earn up to ₹201 on their first payment"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertFalse("Google Pay invite referral promo should be ignored", result.isTransaction)
+    }
+
+    @Test
+    fun testTransactionDetection_IgnorePhonePeFlatCashbackPromo() {
+        val packageName = "com.phonepe.app"
+        val title = "PhonePe Offers"
+        val text = "Get flat ₹50 cashback on your mobile recharge with code FLAT50"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertFalse("PhonePe promo coupon should be ignored", result.isTransaction)
+    }
+
+    @Test
+    fun testTransactionDetection_LegitCashback() {
+        val packageName = "net.one97.paytm"
+        val title = "Paytm"
+        val text = "Cashback of ₹25.00 credited to your Paytm Wallet for order at Swiggy"
+
+        val result = TransactionDetectionEngine.parseNotification(packageName, title, text)
+        assertTrue("Legitimate cashback should be detected", result.isTransaction)
+        val tx = result.transaction!!
+        assertEquals(25.0, tx.amount, 0.01)
+        assertEquals(TransactionType.CREDIT, tx.type)
+        assertEquals("Cashback Reward", tx.merchant)
+    }
+
+    @Test
     fun testCryptoManager_PasswordHashAndVerify() {
         val password = "SuperSecretPassword123"
         val salt = CryptoManager.generateSalt()
