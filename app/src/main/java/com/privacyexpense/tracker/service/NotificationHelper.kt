@@ -35,7 +35,8 @@ object NotificationHelper {
     fun showInteractiveTransactionNotification(
         context: Context,
         transaction: Transaction,
-        categories: List<Category>
+        categories: List<Category>,
+        isPotentialDuplicate: Boolean = false
     ) {
         createNotificationChannel(context)
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -60,7 +61,9 @@ object NotificationHelper {
         } else {
             "₹${String.format("%.2f", transaction.amount)} debited"
         }
-        val typeSubtitle = if (isCredit) {
+        val typeSubtitle = if (isPotentialDuplicate) {
+            "${transaction.merchant} • Possible duplicate alert"
+        } else if (isCredit) {
             "Received from ${transaction.merchant} • Select category:"
         } else {
             "Paid to ${transaction.merchant} • What was this for?"
@@ -74,25 +77,32 @@ object NotificationHelper {
             .setContentIntent(contentPendingIntent)
             .setAutoCancel(true)
 
-        // Add top 2-3 category action buttons
-        val eligibleCategories = categories.filter { it.isNotificationEnabled && it.isEnabled && it.name != "Others" }.take(2)
-        for (category in eligibleCategories) {
-            val actionIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-                action = NotificationActionReceiver.ACTION_CATEGORIZE
-                putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transaction.id)
-                putExtra(NotificationActionReceiver.EXTRA_CATEGORY_ID, category.id)
-                putExtra(NotificationActionReceiver.EXTRA_CATEGORY_NAME, category.name)
-                putExtra(NotificationActionReceiver.EXTRA_AMOUNT, transaction.amount)
-                putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-            }
-            val actionPendingIntent = PendingIntent.getBroadcast(
-                context,
-                (notificationId * 10 + category.id).toInt(),
-                actionIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.addAction(0, category.name, actionPendingIntent)
+        // 'Already Categorized' Action (Duplicate dismissal)
+        val alreadyCategorizedIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_ALREADY_CATEGORIZED
+            putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transaction.id)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
         }
+        val alreadyCategorizedPendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId * 10 + 95,
+            alreadyCategorizedIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 'Fake Transaction' Action (Remove & permanently ignore spam/promo)
+        val fakeIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_MARK_FAKE
+            putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transaction.id)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(NotificationActionReceiver.EXTRA_MERCHANT, transaction.merchant)
+        }
+        val fakePendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId * 10 + 96,
+            fakeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         // 'Others' with WhatsApp-style direct text reply input (RemoteInput)
         val remoteInput = androidx.core.app.RemoteInput.Builder(NotificationActionReceiver.KEY_TEXT_REPLY)
@@ -118,21 +128,36 @@ object NotificationHelper {
         )
             .addRemoteInput(remoteInput)
             .build()
-        builder.addAction(replyAction)
 
-        // 'More...' action button to view in-app
-        val moreIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("EXTRA_NAVIGATE_TO", "TRANSACTIONS")
-            putExtra("EXTRA_TRANSACTION_ID", transaction.id)
+        if (isPotentialDuplicate) {
+            // When message arrives a second time, prioritize "Already Categorized"
+            builder.addAction(0, "🔁 Already Done", alreadyCategorizedPendingIntent)
+            builder.addAction(replyAction)
+            builder.addAction(0, "🚫 Fake", fakePendingIntent)
+        } else {
+            // Standard notification: Category, Inline Note, Fake Transaction, and Already Categorized
+            val topCategory = categories.firstOrNull { it.isNotificationEnabled && it.isEnabled && it.name != "Others" }
+            if (topCategory != null) {
+                val actionIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                    action = NotificationActionReceiver.ACTION_CATEGORIZE
+                    putExtra(NotificationActionReceiver.EXTRA_TRANSACTION_ID, transaction.id)
+                    putExtra(NotificationActionReceiver.EXTRA_CATEGORY_ID, topCategory.id)
+                    putExtra(NotificationActionReceiver.EXTRA_CATEGORY_NAME, topCategory.name)
+                    putExtra(NotificationActionReceiver.EXTRA_AMOUNT, transaction.amount)
+                    putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+                }
+                val actionPendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    (notificationId * 10 + topCategory.id).toInt(),
+                    actionIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                builder.addAction(0, topCategory.name, actionPendingIntent)
+            }
+            builder.addAction(replyAction)
+            builder.addAction(0, "🚫 Fake", fakePendingIntent)
+            builder.addAction(0, "Already Done?", alreadyCategorizedPendingIntent)
         }
-        val morePendingIntent = PendingIntent.getActivity(
-            context,
-            notificationId * 10 + 99,
-            moreIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        builder.addAction(0, "More...", morePendingIntent)
 
         notificationManager.notify(notificationId, builder.build())
     }

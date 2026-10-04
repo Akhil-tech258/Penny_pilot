@@ -490,6 +490,19 @@ fun ExpenseTrackerRootApp(dbHelper: AppDatabaseHelper) {
                         dbHelper.deleteTransaction(txId)
                         refreshData()
                     },
+                    onMarkAsFake = { tx ->
+                        if (tx.merchant.isNotBlank() && tx.merchant != "Unknown Merchant") {
+                            dbHelper.addFakePattern(tx.merchant)
+                        }
+                        dbHelper.deleteTransaction(tx.id)
+                        refreshData()
+                        Toast.makeText(context, "🚫 Marked as Fake Transaction (Removed)", Toast.LENGTH_SHORT).show()
+                    },
+                    onAlreadyCategorized = { txId ->
+                        dbHelper.deleteTransaction(txId)
+                        refreshData()
+                        Toast.makeText(context, "✓ Duplicate removed (Already categorized)", Toast.LENGTH_SHORT).show()
+                    },
                     onUpdateTransaction = { updatedTx ->
                         dbHelper.updateTransaction(updatedTx)
                         refreshData()
