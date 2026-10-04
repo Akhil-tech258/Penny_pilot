@@ -80,6 +80,8 @@ fun CustomTransactionsScreen(
     categories: List<Category>,
     onCategorizeTransaction: (transactionId: Long, categoryId: Long, categoryName: String) -> Unit,
     onDeleteTransaction: (transactionId: Long) -> Unit,
+    onMarkAsFake: (Transaction) -> Unit = {},
+    onAlreadyCategorized: (transactionId: Long) -> Unit = {},
     onUpdateTransaction: (Transaction) -> Unit = {},
     onAddManualTransaction: (Transaction) -> Unit,
     onBackToHome: () -> Unit
@@ -329,7 +331,8 @@ fun CustomTransactionsScreen(
                 pendingTransactions.forEach { tx ->
                     PendingCard(
                         transaction = tx,
-                        onCategorizeClick = { selectedPendingTransaction = tx }
+                        onCategorizeClick = { selectedPendingTransaction = tx },
+                        onMarkAsFakeClick = { onMarkAsFake(tx) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -418,6 +421,14 @@ fun CustomTransactionsScreen(
                         onCategorizeTransaction(tx.id, cat.id, cat.name)
                         selectedPendingTransaction = null
                     },
+                    onAlreadyCategorized = {
+                        onAlreadyCategorized(tx.id)
+                        selectedPendingTransaction = null
+                    },
+                    onMarkAsFake = {
+                        onMarkAsFake(tx)
+                        selectedPendingTransaction = null
+                    },
                     onDismiss = { selectedPendingTransaction = null }
                 )
             }
@@ -503,7 +514,8 @@ private fun FilterChip(text: String, isSelected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun PendingCard(
     transaction: Transaction,
-    onCategorizeClick: () -> Unit
+    onCategorizeClick: () -> Unit,
+    onMarkAsFakeClick: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -542,20 +554,40 @@ private fun PendingCard(
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(TableBorderBlack)
-                    .clickable(onClick = onCategorizeClick)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Categorize",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0xFFFCA5A5), RoundedCornerShape(8.dp))
+                        .clickable(onClick = onMarkAsFakeClick)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Fake?",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFDC2626)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(TableBorderBlack)
+                        .clickable(onClick = onCategorizeClick)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Categorize",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
         }
     }
@@ -820,6 +852,8 @@ private fun CategorySelectionSheet(
     transaction: Transaction,
     categories: List<Category>,
     onSelectCategory: (Category) -> Unit,
+    onAlreadyCategorized: () -> Unit = {},
+    onMarkAsFake: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     Box(
@@ -918,7 +952,48 @@ private fun CategorySelectionSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Action: Already Categorized
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(10.dp))
+                        .clickable(onClick = onAlreadyCategorized),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🔁 Already Categorized (Duplicate)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF374151)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Action: Fake Transaction
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFFEF2F2))
+                        .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(10.dp))
+                        .clickable(onClick = onMarkAsFake),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🚫 Fake Transaction (Spam / Promo)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFDC2626)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Box(
                     modifier = Modifier

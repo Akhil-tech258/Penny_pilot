@@ -17,9 +17,23 @@ class TransactionNotificationListener : NotificationListenerService() {
         val title = extras.getString(Notification.EXTRA_TITLE)
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
 
+        val fullContent = "${title ?: ""} ${text ?: ""}".trim()
+        val dbHelper = AppDatabaseHelper.getInstance(applicationContext)
+
+        // Skip if message matches any pattern user previously marked as fake
+        if (dbHelper.isFakePattern(fullContent)) {
+            return
+        }
+
         val result = TransactionDetectionEngine.parseNotification(sbn.packageName, title, text)
         if (result.isTransaction && result.transaction != null) {
-            val dbHelper = AppDatabaseHelper.getInstance(applicationContext)
+            // Check if this merchant/sender was previously marked as fake
+            if (dbHelper.isFakePattern(result.transaction.merchant)) {
+                return
+            }
+
+            // Check if user already has a similar transaction logged recently
+            val isPotentialDuplicate = dbHelper.hasRecentSimilarTransaction(result.transaction.amount)
 
             // Prevent duplicate logs across channels (UPI + Bank SMS within 180s)
             if (!dbHelper.isDuplicateOrEnrich(result.transaction)) {
@@ -31,7 +45,8 @@ class TransactionNotificationListener : NotificationListenerService() {
                 NotificationHelper.showInteractiveTransactionNotification(
                     applicationContext,
                     savedTransaction,
-                    categories
+                    categories,
+                    isPotentialDuplicate = isPotentialDuplicate
                 )
             }
         }

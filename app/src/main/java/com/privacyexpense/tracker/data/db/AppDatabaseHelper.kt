@@ -105,6 +105,17 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
             """.trimIndent()
         )
 
+        // Fake patterns table to remember discarded promo/spam messages
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS fake_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern TEXT UNIQUE NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+
         // Seed Default Categories matching Storyboard
         seedCategories(db)
     }
@@ -120,6 +131,15 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
                 due_day INTEGER NOT NULL,
                 category_name TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS fake_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern TEXT UNIQUE NOT NULL,
+                created_at INTEGER NOT NULL
             )
             """.trimIndent()
         )
@@ -395,6 +415,50 @@ class AppDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_N
     fun deleteTransaction(transactionId: Long): Boolean {
         val db = writableDatabase
         return db.delete("transactions", "id = ?", arrayOf(transactionId.toString())) > 0
+    }
+
+    fun addFakePattern(pattern: String) {
+        val clean = pattern.trim().lowercase()
+        if (clean.length < 2) return
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("pattern", clean)
+            put("created_at", System.currentTimeMillis())
+        }
+        db.insertWithOnConflict("fake_patterns", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun isFakePattern(text: String): Boolean {
+        val lower = text.lowercase()
+        val db = readableDatabase
+        return try {
+            val cursor = db.rawQuery("SELECT pattern FROM fake_patterns", null)
+            cursor.use {
+                while (it.moveToNext()) {
+                    val p = it.getString(0)
+                    if (p.isNotBlank() && lower.contains(p)) {
+                        return true
+                    }
+                }
+            }
+            false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun hasRecentSimilarTransaction(amount: Double, withinMs: Long = 600_000): Boolean {
+        val db = readableDatabase
+        val minTime = System.currentTimeMillis() - withinMs
+        return try {
+            val cursor = db.rawQuery(
+                "SELECT id FROM transactions WHERE ABS(amount - ?) < 0.01 AND detected_time > ? LIMIT 1",
+                arrayOf(amount.toString(), minTime.toString())
+            )
+            cursor.use { it.moveToFirst() }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun updateTransaction(transaction: Transaction): Boolean {
